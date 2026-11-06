@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { PhysicalPosition } from "@tauri-apps/api/dpi";
+import { availableMonitors, getCurrentWindow } from "@tauri-apps/api/window";
 import { CLAUDE_ICON, CODEX_ICON } from "./icons";
 
 type ProviderId = "claude" | "codex";
@@ -101,6 +102,8 @@ const SHELL_WIDTH = EXPANDED_WIDTH;
 const MAX_EXPANDED_HEIGHT = 320;
 const PIN_STORAGE_KEY = "burnclaw:notch-pinned";
 const AUTO_TUCK_DELAY = 1_500;
+const POSITION_STORAGE_KEY = "burnclaw:notch-position";
+const DRAG_THRESHOLD_PX = 4;
 
 const usage: Record<ProviderId, ProviderUsage | null> = {
   claude: null,
@@ -594,7 +597,63 @@ async function respondToRequest(id: string, action: string, answers?: Record<str
   }
 }
 
-$("compact-view").addEventListener("click", () => void expand());
+const compactView = $("compact-view");
+let dragCandidate: { x: number; y: number } | null = null;
+let draggingWindow = false;
+let lastDragEndedAt = 0;
+
+function setPinned(value: boolean): void {
+  if (isPinned === value) return;
+  isPinned = value;
+  window.localStorage.setItem(PIN_STORAGE_KEY, String(isPinned));
+  renderPinState();
+}
+
+function savePosition(position: { x: number; y: number }): void {
+  try {
+    window.localStorage.setItem(POSITION_STORAGE_KEY, JSON.stringify(position));
+  } catch {
+    // Position persistence is a convenience; ignore storage failures.
+  }
+}
+
+// Drag the notch with the left mouse button. A short press is still a click
+// (opens the session panel); moving more than DRAG_THRESHOLD_PX starts a native
+// window drag. Dragging pins the notch so it does not auto-hide away from the
+// top edge, and the position is remembered between launches.
+compactView.addEventListener("mousedown", (event) => {
+  if (!appWindow || event.button !== 0) return;
+  const inner = (event.target as HTMLElement).closest("button");
+  if (inner && inner !== compactView) return;
+  dragCandidate = { x: event.screenX, y: event.screenY };
+});
+window.addEventListener("mousemove", (event) => {
+  if (!dragCandidate || !appWindow || draggingWindow) return;
+  if ((event.buttons & 1) === 0) {
+    dragCandidate = null;
+    return;
+  }
+  const moved = Math.hypot(event.screenX - dragCandidate.x, event.screenY - dragCandidate.y);
+  if (moved < DRAG_THRESHOLD_PX) return;
+  dragCandidate = null;
+  draggingWindow = true;
+  setPinned(true);
+  revealCompactNotch();
+  void appWindow.startDragging().catch(() => undefined).finally(() => {
+    draggingWindow = false;
+    lastDragEndedAt = Date.now();
+    void appWindow.outerPosition().then((p) => savePosition({ x: p.x, y: p.y })).catch(() => undefined);
+  });
+});
+window.addEventListener("mouseup", () => {
+  dragCandidate = null;
+});
+
+compactView.addEventListener("click", () => {
+  // A drag releases the mouse over the notch; do not treat it as a click.
+  if (draggingWindow || Date.now() - lastDragEndedAt < 300) return;
+  void expand();
+});
 pinButton.addEventListener("click", (event) => {
   event.stopPropagation();
   isPinned = !isPinned;
@@ -760,6 +819,28 @@ window.setInterval(() => {
   });
 }, 15_000);
 
+async function restoreSavedPosition(): Promise<void> {
+  if (!appWindow) return;
+  try {
+    const raw = window.localStorage.getItem(POSITION_STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw) as { x: number; y: number };
+    if (!Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return;
+    // Only restore if the notch's center would still be on a connected monitor.
+    const centerX = saved.x + (SHELL_WIDTH * windowScale) / 2;
+    const monitors = await availableMonitors();
+    const onScreen = monitors.some((m) =>
+      centerX >= m.position.x &&
+      centerX <= m.position.x + m.size.width &&
+      saved.y >= m.position.y &&
+      saved.y <= m.position.y + m.size.height - 40,
+    );
+    if (onScreen) await appWindow.setPosition(new PhysicalPosition(saved.x, saved.y));
+  } catch (error) {
+    console.error("restoreSavedPosition failed", error);
+  }
+}
+
 async function bootstrap(): Promise<void> {
   renderPinState();
   if (!isTauri) {
@@ -771,6 +852,7 @@ async function bootstrap(): Promise<void> {
   }
 
   windowScale = await appWindow!.scaleFactor().catch(() => 1);
+  await restoreSavedPosition();
 
   const [claudeUsage, codexUsage, claudeStatus, codexStatus, initialSessions, requests] = await Promise.all([
     invoke<UsageSnapshot | null>("get_current_usage").catch(() => null),
