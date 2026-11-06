@@ -13,10 +13,12 @@ const SYSTEM_PROMPT: &str = "You are Claude Code, Anthropic's official CLI for C
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageSnapshot {
-    pub session_5h_pct: f64,
-    pub session_5h_reset_at: DateTime<Utc>,
-    pub weekly_pct: f64,
-    pub weekly_reset_at: DateTime<Utc>,
+    // Ventanas opcionales: las cuentas sin límite de 5h (p. ej. Ultra
+    // verificado) no devuelven los headers `5h-*`.
+    pub session_5h_pct: Option<f64>,
+    pub session_5h_reset_at: Option<DateTime<Utc>>,
+    pub weekly_pct: Option<f64>,
+    pub weekly_reset_at: Option<DateTime<Utc>>,
     pub fetched_at: DateTime<Utc>,
     pub unified_status: String,
     pub session_5h_status: String,
@@ -158,21 +160,6 @@ async fn make_request(access_token: &str, plan: &str) -> Result<UsageSnapshot, A
     }
     println!("--- END HEADERS ---");
 
-    // Helper para extraer headers
-    let get = |name: &'static str| -> Result<String, AnthropicError> {
-        headers
-            .get(name)
-            .ok_or(AnthropicError::MissingHeader(name))?
-            .to_str()
-            .map(|s| s.to_string())
-            .map_err(|e| AnthropicError::InvalidHeaderValue(e.to_string()))
-    };
-
-    let session_pct_raw = get("anthropic-ratelimit-unified-5h-utilization")?;
-    let session_reset_raw = get("anthropic-ratelimit-unified-5h-reset")?;
-    let weekly_pct_raw = get("anthropic-ratelimit-unified-7d-utilization")?;
-    let weekly_reset_raw = get("anthropic-ratelimit-unified-7d-reset")?;
-
     let get_opt = |name: &str| -> Option<String> {
         headers.get(name).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
     };
@@ -189,10 +176,15 @@ async fn make_request(access_token: &str, plan: &str) -> Result<UsageSnapshot, A
 
     // IMPORTANTE: en Fase 1 imprimir estos raw values y confirmar formato.
     // Ajustar parsers tras ver primer response real.
-    let session_5h_pct = parse_utilization(&session_pct_raw)?;
-    let weekly_pct = parse_utilization(&weekly_pct_raw)?;
-    let session_5h_reset_at = parse_reset_timestamp(&session_reset_raw)?;
-    let weekly_reset_at = parse_reset_timestamp(&weekly_reset_raw)?;
+    let (session_5h_pct, session_5h_reset_at) = parse_window(&get_opt, "5h")?;
+    let (weekly_pct, weekly_reset_at) = parse_window(&get_opt, "7d")?;
+
+    // Si no llega ninguna ventana, la respuesta no sirve para nada.
+    if session_5h_pct.is_none() && weekly_pct.is_none() {
+        return Err(AnthropicError::MissingHeader(
+            "anthropic-ratelimit-unified-7d-utilization",
+        ));
+    }
 
     Ok(UsageSnapshot {
         session_5h_pct,
@@ -208,6 +200,21 @@ async fn make_request(access_token: &str, plan: &str) -> Result<UsageSnapshot, A
         overage_disabled_reason,
         plan: plan.to_string(),
     })
+}
+
+/// Lee `anthropic-ratelimit-unified-<w>-utilization` y `-reset`. Cada valor es
+/// opcional: si el header no existe devuelve `None` en vez de fallar.
+fn parse_window(
+    get_opt: &dyn Fn(&str) -> Option<String>,
+    window: &str,
+) -> Result<(Option<f64>, Option<DateTime<Utc>>), AnthropicError> {
+    let pct = get_opt(&format!("anthropic-ratelimit-unified-{window}-utilization"))
+        .map(|raw| parse_utilization(&raw))
+        .transpose()?;
+    let reset = get_opt(&format!("anthropic-ratelimit-unified-{window}-reset"))
+        .map(|raw| parse_reset_timestamp(&raw))
+        .transpose()?;
+    Ok((pct, reset))
 }
 
 fn parse_utilization(raw: &str) -> Result<f64, AnthropicError> {

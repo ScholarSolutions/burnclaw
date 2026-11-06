@@ -157,12 +157,22 @@ pub fn update_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // muestra la ventana de 5h. El color del icono sí considera ambas ventanas
     // (max_pct) para no perder el aviso de la semanal.
     if let Some(c) = &claude {
-        max_pct = max_pct.max(c.session_5h_pct).max(c.weekly_pct);
-        lines.push(format!(
-            "Claude · 5h {}%{}",
-            c.session_5h_pct.round() as i64,
-            paren(Some(c.session_5h_reset_at)),
-        ));
+        for pct in [c.session_5h_pct, c.weekly_pct].into_iter().flatten() {
+            max_pct = max_pct.max(pct);
+        }
+        // 5h si existe; si no (p. ej. Ultra verificado), la semanal.
+        let visible = c
+            .session_5h_pct
+            .map(|pct| ("5h", pct, c.session_5h_reset_at))
+            .or_else(|| c.weekly_pct.map(|pct| ("7d", pct, c.weekly_reset_at)));
+        if let Some((label, pct, reset)) = visible {
+            lines.push(format!(
+                "Claude · {} {}%{}",
+                label,
+                pct.round() as i64,
+                paren(reset),
+            ));
+        }
     }
     if let Some(x) = &codex {
         max_pct = max_pct.max(x.session_5h_pct).max(x.weekly_pct);

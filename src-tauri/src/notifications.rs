@@ -51,15 +51,15 @@ pub fn check_and_notify(
 ) {
     // Reset de flags al cambiar de ventana (nuevo reset_at) — siempre, aunque
     // las notificaciones estén desactivadas, para no quedar en estado raro.
-    if state.current_session_window != Some(snap.session_5h_reset_at) {
+    if state.current_session_window != snap.session_5h_reset_at {
         state.session_warn_notified = false;
         state.session_crit_notified = false;
-        state.current_session_window = Some(snap.session_5h_reset_at);
+        state.current_session_window = snap.session_5h_reset_at;
     }
-    if state.current_weekly_window != Some(snap.weekly_reset_at) {
+    if state.current_weekly_window != snap.weekly_reset_at {
         state.weekly_warn_notified = false;
         state.weekly_crit_notified = false;
-        state.current_weekly_window = Some(snap.weekly_reset_at);
+        state.current_weekly_window = snap.weekly_reset_at;
     }
 
     if !cfg.notify_usage_thresholds {
@@ -68,57 +68,60 @@ pub fn check_and_notify(
 
     let warn = cfg.warning_threshold as f64;
     let crit = cfg.critical_threshold as f64;
+    let countdown = |reset: Option<chrono::DateTime<chrono::Utc>>| {
+        reset
+            .map(|r| format!(". Resets in {}", format_countdown(&r)))
+            .unwrap_or_default()
+    };
 
-    // --- Session 5h ---
-    if snap.session_5h_pct >= crit && !state.session_crit_notified {
-        notify(
-            "BurnClaw — Session critical",
-            &format!(
-                "Session at {}%. Resets in {}",
-                snap.session_5h_pct.round() as i64,
-                format_countdown(&snap.session_5h_reset_at),
-            ),
-        );
-        state.session_crit_notified = true;
-    } else if snap.session_5h_pct >= warn
-        && !state.session_warn_notified
-        && !state.session_crit_notified
-    {
-        notify(
-            "BurnClaw — Session warning",
-            &format!(
-                "Session at {}%. Resets in {}",
-                snap.session_5h_pct.round() as i64,
-                format_countdown(&snap.session_5h_reset_at),
-            ),
-        );
-        state.session_warn_notified = true;
+    // --- Session 5h (solo si la cuenta tiene esta ventana) ---
+    if let Some(pct) = snap.session_5h_pct {
+        if pct >= crit && !state.session_crit_notified {
+            notify(
+                "BurnClaw — Session critical",
+                &format!(
+                    "Session at {}%{}",
+                    pct.round() as i64,
+                    countdown(snap.session_5h_reset_at)
+                ),
+            );
+            state.session_crit_notified = true;
+        } else if pct >= warn && !state.session_warn_notified && !state.session_crit_notified {
+            notify(
+                "BurnClaw — Session warning",
+                &format!(
+                    "Session at {}%{}",
+                    pct.round() as i64,
+                    countdown(snap.session_5h_reset_at)
+                ),
+            );
+            state.session_warn_notified = true;
+        }
     }
 
     // --- Weekly 7d ---
-    if snap.weekly_pct >= crit && !state.weekly_crit_notified {
-        notify(
-            "BurnClaw — Weekly critical",
-            &format!(
-                "Weekly at {}%. Resets in {}",
-                snap.weekly_pct.round() as i64,
-                format_countdown(&snap.weekly_reset_at),
-            ),
-        );
-        state.weekly_crit_notified = true;
-    } else if snap.weekly_pct >= warn
-        && !state.weekly_warn_notified
-        && !state.weekly_crit_notified
-    {
-        notify(
-            "BurnClaw — Weekly warning",
-            &format!(
-                "Weekly at {}%. Resets in {}",
-                snap.weekly_pct.round() as i64,
-                format_countdown(&snap.weekly_reset_at),
-            ),
-        );
-        state.weekly_warn_notified = true;
+    if let Some(pct) = snap.weekly_pct {
+        if pct >= crit && !state.weekly_crit_notified {
+            notify(
+                "BurnClaw — Weekly critical",
+                &format!(
+                    "Weekly at {}%{}",
+                    pct.round() as i64,
+                    countdown(snap.weekly_reset_at)
+                ),
+            );
+            state.weekly_crit_notified = true;
+        } else if pct >= warn && !state.weekly_warn_notified && !state.weekly_crit_notified {
+            notify(
+                "BurnClaw — Weekly warning",
+                &format!(
+                    "Weekly at {}%{}",
+                    pct.round() as i64,
+                    countdown(snap.weekly_reset_at)
+                ),
+            );
+            state.weekly_warn_notified = true;
+        }
     }
 }
 
