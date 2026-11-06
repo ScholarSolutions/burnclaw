@@ -5,10 +5,10 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { CLAUDE_ICON, CODEX_ICON } from "./icons";
 
 interface UsageSnapshot {
-  session_5h_pct: number;
-  session_5h_reset_at: string;
-  weekly_pct: number;
-  weekly_reset_at: string;
+  session_5h_pct: number | null;
+  session_5h_reset_at: string | null;
+  weekly_pct: number | null;
+  weekly_reset_at: string | null;
   fetched_at: string;
   unified_status: string;
   session_5h_status: string;
@@ -30,9 +30,9 @@ interface CodexUsageSnapshot {
 
 // Forma normalizada común a ambos proveedores, para renderizar genéricamente.
 interface ProviderSnapshot {
-  sessionPct: number;
+  sessionPct: number | null;
   sessionResetAt: string | null;
-  weeklyPct: number;
+  weeklyPct: number | null;
   weeklyResetAt: string | null;
   fetchedAt: string;
   plan: string | null;
@@ -316,25 +316,29 @@ function renderProviderPill(def: ProviderDef, snap: ProviderSnapshot) {
   applyArc(group, "weekly", snap.weeklyPct, INNER_CIRC);
   const sCd = snap.sessionResetAt ? formatCountdown(snap.sessionResetAt) : "—";
   const wCd = snap.weeklyResetAt ? formatCountdown(snap.weeklyResetAt) : "—";
-  group.setAttribute(
-    "data-tooltip",
-    `${def.name} — 5h ${Math.round(snap.sessionPct)}% (${sCd}) · 7d ${Math.round(
-      snap.weeklyPct,
-    )}% (${wCd})`,
-  );
+  const parts: string[] = [];
+  if (snap.sessionPct !== null) parts.push(`5h ${Math.round(snap.sessionPct)}% (${sCd})`);
+  if (snap.weeklyPct !== null) parts.push(`7d ${Math.round(snap.weeklyPct)}% (${wCd})`);
+  group.setAttribute("data-tooltip", `${def.name} — ${parts.join(" · ")}`);
 }
 
 // Pinta uno de los dos arcos concéntricos (+ su número central) según su %.
 function applyArc(
   group: Element,
   window: "session" | "weekly",
-  pct: number,
+  pct: number | null,
   circ: number,
 ) {
-  const level = getLevelClass(pct);
   const progress = group.querySelector(
     `.progress[data-progress="${window}"]`,
   ) as SVGCircleElement;
+  // Ventana inexistente (p. ej. sin límite de 5h): arco vacío.
+  if (pct === null) {
+    progress.setAttribute("class", "progress");
+    progress.setAttribute("stroke-dashoffset", String(circ));
+    return;
+  }
+  const level = getLevelClass(pct);
   progress.setAttribute("class", `progress ${level}`);
   progress.setAttribute(
     "stroke-dashoffset",
@@ -358,12 +362,15 @@ function renderProviderWidget(def: ProviderDef, snap: ProviderSnapshot) {
 function applyMetric(
   block: Element,
   window: "session" | "weekly",
-  pct: number,
+  pct: number | null,
   resetAt: string | null,
   dominant: boolean,
 ) {
   const sec = block.querySelector(`.metric[data-window="${window}"]`);
   if (!sec) return;
+  // Ventana inexistente: ocultar el bloque entero.
+  (sec as HTMLElement).style.display = pct === null ? "none" : "";
+  if (pct === null) return;
   const level = getLevelClass(pct);
   const bar = sec.querySelector("[data-bar]") as HTMLElement;
   const val = sec.querySelector("[data-val]") as HTMLElement;
