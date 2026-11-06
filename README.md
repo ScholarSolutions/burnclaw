@@ -10,7 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-1a1814?style=flat-square" alt="Windows 10 / 11" />
-  <img src="https://img.shields.io/badge/version-2.0.1-1a1814?style=flat-square" alt="Version 2.0.1" />
+  <img src="https://img.shields.io/badge/version-2.0.2-1a1814?style=flat-square" alt="Version 2.0.2" />
   <img src="https://img.shields.io/badge/license-MIT-1a1814?style=flat-square" alt="MIT" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%202-1a1814?style=flat-square" alt="Tauri 2" />
 </p>
