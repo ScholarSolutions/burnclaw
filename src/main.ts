@@ -6,10 +6,10 @@ import { CLAUDE_ICON, CODEX_ICON } from "./icons";
 type ProviderId = "claude" | "codex";
 
 interface UsageSnapshot {
-  session_5h_pct: number;
-  session_5h_reset_at: string;
-  weekly_pct: number;
-  weekly_reset_at: string;
+  session_5h_pct: number | null;
+  session_5h_reset_at: string | null;
+  weekly_pct: number | null;
+  weekly_reset_at: string | null;
   fetched_at: string;
   plan: string;
 }
